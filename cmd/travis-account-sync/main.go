@@ -20,6 +20,7 @@ import (
 
 var (
 	errInvalidGithubScopesYAML = fmt.Errorf("the GithubScopesYAML value is invalid")
+	VersionString              = "0.1.0"
 )
 
 type tokenSource struct {
@@ -98,34 +99,9 @@ func (err *userSyncError) Error() string {
 		err.TravisGithubID, err.GithubID, err.TravisLogin, err.GithubLogin)
 }
 
-func main() {
-	app := cli.NewApp()
-	app.Usage = "Syncing accounts"
-	app.Version = "???"
-	app.Flags = []cli.Flag{
-		cli.StringFlag{
-			Name:   "k, encryption-key",
-			Value:  "",
-			EnvVar: "TRAVIS_ACCOUNT_SYNC_ENCRYPTION_KEY",
-		},
-		cli.StringFlag{
-			Name:   "d, database-url",
-			Value:  "",
-			EnvVar: "TRAVIS_ACCOUNT_SYNC_DATABASE_URL",
-		},
-		cli.StringSliceFlag{
-			Name:   "u, github-usernames",
-			Value:  &cli.StringSlice{},
-			EnvVar: "TRAVIS_ACCOUNT_SYNC_GITHUB_USERNAMES",
-		},
-	}
-	syncer := &Syncer{}
-	app.Action = syncer.runSync
-	app.Run(os.Args)
-}
-
 type Syncer struct {
-	db *sqlx.DB
+	db                       *sqlx.DB
+	EducationEndpointTimeout int
 }
 
 func (syncer *Syncer) runSync(c *cli.Context) {
@@ -190,6 +166,7 @@ func (syncer *Syncer) runSync(c *cli.Context) {
 		log.Printf("msg=\"creating oauth2 client\" token=%q", ts.token.AccessToken)
 		tc := oauth2.NewClient(oauth2.NoContext, ts)
 		client := github.NewClient(tc)
+		client.UserAgent = fmt.Sprintf("Travis CI Account Sync/%s", VersionString)
 
 		err = syncer.syncUser(user, client)
 		if err != nil {
@@ -245,10 +222,18 @@ func (syncer *Syncer) syncUser(user *User, client *github.Client) error {
 		return err
 	}
 
+	edu, err := syncer.getIsEducation(user, ghUser, client)
+	if err != nil {
+		return err
+	}
+
 	newUser.Name = sql.NullString{String: *ghUser.Name, Valid: true}
 	newUser.Login = sql.NullString{String: *ghUser.Login, Valid: true}
 	newUser.GravatarID = sql.NullString{String: *ghUser.GravatarID, Valid: true}
 	newUser.Email = sql.NullString{String: email, Valid: true}
+	if edu != nil {
+		newUser.Education = *edu
+	}
 
 	log.Printf("msg=\"would be saving user\" user=%#v", newUser)
 
@@ -310,6 +295,24 @@ func (syncer *Syncer) getAllEmails(user *User, client *github.Client) ([]github.
 	return emails, err
 }
 
+func (syncer *Syncer) getIsEducation(user *User, ghUser *github.User, client *github.Client) (*bool, error) {
+	req, err := client.NewRequest("GET", "https://education.github.com/api/user", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	body := map[string]bool{"student": false}
+
+	_, err = client.Do(req, &body)
+	if err != nil {
+		return nil, err
+	}
+
+	student := body["student"]
+
+	return &student, nil
+}
+
 func (syncer *Syncer) syncOrganizations(user *User, client *github.Client) error {
 	return nil
 }
@@ -354,4 +357,39 @@ func sliceContains(sl []string, s string) bool {
 	}
 
 	return false
+}
+
+func main() {
+	app := cli.NewApp()
+	app.Usage = "Syncing accounts"
+	app.Version = VersionString
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:   "k, encryption-key",
+			Value:  "",
+			EnvVar: "TRAVIS_ACCOUNT_SYNC_ENCRYPTION_KEY",
+		},
+		cli.StringFlag{
+			Name:   "d, database-url",
+			Value:  "",
+			EnvVar: "TRAVIS_ACCOUNT_SYNC_DATABASE_URL",
+		},
+		cli.StringSliceFlag{
+			Name:   "u, github-usernames",
+			Value:  &cli.StringSlice{},
+			EnvVar: "TRAVIS_ACCOUNT_SYNC_GITHUB_USERNAMES",
+		},
+		cli.IntFlag{
+			Name:   "education-endpoint-timeout",
+			Value:  5000,
+			EnvVar: "TRAVIS_ACCOUNT_SYNC_EDUCATION_ENDPOINT_TIMEOUT",
+		},
+	}
+	app.Action = func(c *cli.Context) {
+		syncer := &Syncer{
+			EducationEndpointTimeout: c.Int("education-endpoint-timeout"),
+		}
+		syncer.runSync(c)
+	}
+	app.Run(os.Args)
 }
