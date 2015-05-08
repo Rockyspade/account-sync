@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codegangsta/cli"
 	"github.com/google/go-github/github"
 	"github.com/jmoiron/sqlx"
 	"github.com/travis-ci/encrypted-column"
@@ -43,20 +44,39 @@ type User struct {
 }
 
 func main() {
+	app := cli.NewApp()
+	app.Usage = "Syncing accounts"
+	app.Version = "???"
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:   "k, encryption-key",
+			Value:  "",
+			EnvVar: "TRAVIS_ACCOUNT_SYNC_ENCRYPTION_KEY",
+		},
+		cli.StringFlag{
+			Name:   "d, database-url",
+			Value:  "",
+			EnvVar: "TRAVIS_ACCOUNT_SYNC_DATABASE_URL",
+		},
+		cli.StringSliceFlag{
+			Name:   "u, github-usernames",
+			Value:  &cli.StringSlice{},
+			EnvVar: "TRAVIS_ACCOUNT_SYNC_GITHUB_USERNAMES",
+		},
+	}
+	app.Action = runSync
+	app.Run(os.Args)
+}
+
+func runSync(c *cli.Context) {
 	log.SetFlags(log.LstdFlags)
 
-	encryptionKeyHex := os.Getenv("TRAVIS_ACCOUNT_SYNC_ENCRYPTION_KEY")
+	encryptionKeyHex := c.String("encryption-key")
 	if encryptionKeyHex == "" {
-		log.Fatal("msg=\"missing TRAVIS_ACCOUNT_SYNC_ENCRYPTION_KEY\"")
+		log.Fatal("msg=\"missing encryption key\"")
 	}
 	githubUsernames := []string{}
-	for i, username := range os.Args {
-		if i == 0 {
-			continue
-		}
-		githubUsernames = append(githubUsernames, username)
-	}
-	for _, username := range strings.Split(os.Getenv("GITHUB_USERNAMES"), ",") {
+	for _, username := range c.StringSlice("github-usernames") {
 		if strings.TrimSpace(username) == "" {
 			continue
 		}
@@ -64,7 +84,7 @@ func main() {
 	}
 
 	log.Println("msg=\"connecting to database\"")
-	db, err := sqlx.Connect("postgres", os.Getenv("TRAVIS_ACCOUNT_SYNC_DATABASE_URL"))
+	db, err := sqlx.Connect("postgres", c.String("database-url"))
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,0 +1,13 @@
+language: go
+env:
+  global:
+  - PATH="$HOME/gopath/bin:$HOME/bin:$PATH"
+before_install:
+- go get -x github.com/hamfist/deppy
+install:
+- deppy restore
+- go get -x ./...
+script:
+- go test -v ./...
+- travis-account-sync --version
+- travis-account-sync --help

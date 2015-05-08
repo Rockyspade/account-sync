@@ -1,0 +1,43 @@
+{
+	"ImportPath": "github.com/travis-ci/account-sync",
+	"GoVersion": "go1.4.1",
+	"Packages": [
+		"./..."
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/codegangsta/cli",
+			"Comment": "1.2.0-38-g9908e96",
+			"Rev": "9908e96513e5a94de37004098a3974a567f18111"
+		},
+		{
+			"ImportPath": "github.com/google/go-github/github",
+			"Rev": "6f7d3a5ad94d7a8c1cf7cb93d1364d0369ea8bbd"
+		},
+		{
+			"ImportPath": "github.com/google/go-querystring/query",
+			"Rev": "547ef5ac979778feb2f760cdb5f4eae1a2207b86"
+		},
+		{
+			"ImportPath": "github.com/jmoiron/sqlx",
+			"Comment": "sqlx-v1.0-43-gad32362",
+			"Rev": "ad3236229f4566e89cf8eaf154658fab3bbef621"
+		},
+		{
+			"ImportPath": "github.com/lib/pq",
+			"Rev": "b7af72a1fc1649a8871af32e23229fb89ae6cdc7"
+		},
+		{
+			"ImportPath": "github.com/travis-ci/encrypted-column",
+			"Rev": "ad68ed354a4c7716dd95a6cf1beff8d80d506693"
+		},
+		{
+			"ImportPath": "golang.org/x/net/context",
+			"Rev": "972f0c5fbe4ae29e666c3f78c3ed42ae7a448b0a"
+		},
+		{
+			"ImportPath": "golang.org/x/oauth2",
+			"Rev": "ec6d5d770f531108a6464462b2201b74fcd09314"
+		}
+	]
+}
