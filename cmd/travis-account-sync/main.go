@@ -235,9 +235,34 @@ func (syncer *Syncer) syncUser(user *User, client *github.Client) error {
 		newUser.Education = *edu
 	}
 
-	log.Printf("msg=\"would be saving user\" user=%#v", newUser)
+	log.Printf("level=debug msg=\"saving user\" user=%#v", newUser)
+	query, args, err := sqlx.Named(`
+		UPDATE users
+		SET
+			name = :name,
+			login = :login,
+			gravatar_id = :gravatar_id,
+			email = :email,
+			education = :education
+		WHERE id = :id
+	`, newUser)
+	if err != nil {
+		return err
+	}
 
-	return nil
+	log.Printf("query=%q args=%v", query, args)
+
+	tx, err := syncer.db.Beginx()
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(query, args...)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func (syncer *Syncer) getUserEmail(user *User, ghUser *github.User, client *github.Client) (string, error) {
