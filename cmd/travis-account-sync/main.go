@@ -100,8 +100,7 @@ func (err *userSyncError) Error() string {
 }
 
 type Syncer struct {
-	db                       *sqlx.DB
-	EducationEndpointTimeout int
+	db *sqlx.DB
 }
 
 func (syncer *Syncer) runSync(c *cli.Context) {
@@ -142,7 +141,7 @@ func (syncer *Syncer) runSync(c *cli.Context) {
 			errMap[githubUsername] = append(errMap[githubUsername], err)
 		}
 
-		log.Printf("msg=\"fetching user\" login=%q", githubUsername)
+		log.Printf("msg=\"fetching user\" login=%v", githubUsername)
 		err = db.Get(user, "SELECT * FROM users WHERE login = $1", githubUsername)
 		if err != nil {
 			addErr(err)
@@ -163,28 +162,47 @@ func (syncer *Syncer) runSync(c *cli.Context) {
 
 		ts := &tokenSource{token: &oauth2.Token{AccessToken: token}}
 
-		log.Printf("msg=\"creating oauth2 client\" token=%q", ts.token.AccessToken)
 		tc := oauth2.NewClient(oauth2.NoContext, ts)
 		client := github.NewClient(tc)
 		client.UserAgent = fmt.Sprintf("Travis CI Account Sync/%s", VersionString)
 
+		fullStarted := time.Now().UTC()
+		log.Printf("state=started sync=user login=%v", githubUsername)
+
+		started := time.Now().UTC()
+		log.Printf("state=started sync=user_info login=%v", githubUsername)
 		err = syncer.syncUser(user, client)
 		if err != nil {
 			addErr(err)
+			log.Printf("state=errored sync=user_info err=%v login=%v", err, githubUsername)
 			continue
 		}
+		log.Printf("state=completed sync=user_info login=%v duration=%v",
+			githubUsername, time.Now().UTC().Sub(started))
 
+		started = time.Now().UTC()
+		log.Printf("state=started sync=organizations login=%v", githubUsername)
 		err = syncer.syncOrganizations(user, client)
 		if err != nil {
 			addErr(err)
+			log.Printf("state=errored sync=organizations err=%v login=%v", err, githubUsername)
 			continue
 		}
+		log.Printf("state=completed sync=organizations login=%v duration=%v",
+			githubUsername, time.Now().UTC().Sub(started))
 
+		started = time.Now().UTC()
+		log.Printf("state=started sync=repositories login=%v", githubUsername)
 		err = syncer.syncOwnerRepositories(user, client)
 		if err != nil {
 			addErr(err)
 			continue
 		}
+		log.Printf("state=completed sync=repositories login=%v duration=%v",
+			githubUsername, time.Now().UTC().Sub(started))
+
+		log.Printf("state=completed sync=user login=%v duration=%v",
+			githubUsername, time.Now().UTC().Sub(fullStarted))
 	}
 
 	for githubUsername, errors := range errMap {
@@ -200,7 +218,7 @@ func (syncer *Syncer) syncUser(user *User, client *github.Client) error {
 		return err
 	}
 
-	err = &userSyncError{
+	syncErr := &userSyncError{
 		TravisLogin:    user.Login.String,
 		TravisGithubID: user.GithubID,
 		GithubLogin:    *ghUser.Login,
@@ -208,14 +226,12 @@ func (syncer *Syncer) syncUser(user *User, client *github.Client) error {
 	}
 
 	if user.GithubID != *ghUser.ID {
-		return err
+		return syncErr
 	}
 
 	if user.Login.String != *ghUser.Login {
-		return err
+		return syncErr
 	}
-
-	newUser := user.Clone()
 
 	email, err := syncer.getUserEmail(user, ghUser, client)
 	if err != nil {
@@ -227,37 +243,24 @@ func (syncer *Syncer) syncUser(user *User, client *github.Client) error {
 		return err
 	}
 
-	newUser.Name = sql.NullString{String: *ghUser.Name, Valid: true}
-	newUser.Login = sql.NullString{String: *ghUser.Login, Valid: true}
-	newUser.GravatarID = sql.NullString{String: *ghUser.GravatarID, Valid: true}
-	newUser.Email = sql.NullString{String: email, Valid: true}
+	isEdu := user.Education
 	if edu != nil {
-		newUser.Education = *edu
+		isEdu = *edu
 	}
-
-	log.Printf("level=debug msg=\"saving user\" user=%#v", newUser)
-	query, args, err := sqlx.Named(`
-		UPDATE users
-		SET
-			name = :name,
-			login = :login,
-			gravatar_id = :gravatar_id,
-			email = :email,
-			education = :education
-		WHERE id = :id
-	`, newUser)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("query=%q args=%v", query, args)
 
 	tx, err := syncer.db.Beginx()
 	if err != nil {
 		return err
 	}
 
-	_, err = tx.Exec(query, args...)
+	log.Printf("msg=\"updating user info\" sync=user_info login=%v", user.Login.String)
+	_, err = tx.Exec(`
+		UPDATE users
+		SET name = $1, login = $2, gravatar_id = $3, email = $4, education = $5
+		WHERE id = $6
+	`, *ghUser.Name, *ghUser.Login, *ghUser.GravatarID, email, isEdu,
+		user.ID)
+
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -355,14 +358,16 @@ func (syncer *Syncer) syncOwnerRepositories(user *User, client *github.Client) e
 			},
 		}
 
-		log.Printf("msg=\"fetching repositories\" page=%v login=%q", curPage, user.Login.String)
+		log.Printf("msg=\"fetching repositories\" page=%v login=%v",
+			curPage, user.Login.String)
 		repos, response, err := client.Repositories.List(user.Login.String, opts)
 		if err != nil {
 			return err
 		}
 
 		for _, repo := range repos {
-			fmt.Printf("id=%v full_name=%v\n", *repo.ID, *repo.FullName)
+			log.Printf("login=%v repo_id=%v repo_full_name=%v\n",
+				user.Login.String, *repo.ID, *repo.FullName)
 		}
 
 		if response.NextPage == 0 {
@@ -404,16 +409,9 @@ func main() {
 			Value:  &cli.StringSlice{},
 			EnvVar: "TRAVIS_ACCOUNT_SYNC_GITHUB_USERNAMES",
 		},
-		cli.IntFlag{
-			Name:   "education-endpoint-timeout",
-			Value:  5000,
-			EnvVar: "TRAVIS_ACCOUNT_SYNC_EDUCATION_ENDPOINT_TIMEOUT",
-		},
 	}
 	app.Action = func(c *cli.Context) {
-		syncer := &Syncer{
-			EducationEndpointTimeout: c.Int("education-endpoint-timeout"),
-		}
+		syncer := &Syncer{}
 		syncer.runSync(c)
 	}
 	app.Run(os.Args)
