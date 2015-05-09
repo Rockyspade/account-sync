@@ -106,6 +106,7 @@ func (uis *UserInfoSyncer) Sync(user *User, client *github.Client) error {
 		return err
 	}
 
+	log.Printf("msg=\"updating emails\" sync=user_info login=%v", user.Login.String)
 	err = uis.updateEmails(tx, ctx)
 
 	if err != nil {
@@ -117,23 +118,27 @@ func (uis *UserInfoSyncer) Sync(user *User, client *github.Client) error {
 }
 
 func (uis *UserInfoSyncer) getUserEmail(ctx *userInfoSyncContext) (string, error) {
-	email := *ctx.ghUser.Email
-	if email != "" {
-		return email, nil
-	}
+	log.Printf("msg=\"fetching all emails\" level=debug sync=user_info login=%s",
+		ctx.user.Login.String)
 
-	allEmails, err := uis.getAllEmails(ctx)
+	allEmails, err := uis.getAllGithubEmails(ctx)
 	if err != nil {
-		return "", err
+		return *ctx.ghUser.Email, err
 	}
 
 	ctx.allEmails = allEmails
+
+	currentEmails, err := uis.getCurrentlySyncedEmails(ctx)
+	if err != nil {
+		return *ctx.ghUser.Email, err
+	}
+
+	ctx.currentEmails = currentEmails
 
 	primaryEmail := ""
 	firstEmail := ""
 	verifiedEmail := ""
 	for i, email := range allEmails {
-		ctx.currentEmails = append(ctx.currentEmails, *email.Email)
 		if i == 0 {
 			firstEmail = *email.Email
 		}
@@ -148,6 +153,17 @@ func (uis *UserInfoSyncer) getUserEmail(ctx *userInfoSyncContext) (string, error
 		if primaryEmail == "" && email.Primary != nil && *email.Primary {
 			primaryEmail = *email.Email
 		}
+	}
+
+	log.Printf("level=debug sync=user_info login=%s current_emails=%v",
+		ctx.user.Login.String, ctx.currentEmails)
+
+	log.Printf("level=debug sync=user_info login=%s verified_emails=%v",
+		ctx.user.Login.String, ctx.verifiedEmails)
+
+	email := *ctx.ghUser.Email
+	if email != "" {
+		return email, nil
 	}
 
 	if primaryEmail != "" {
@@ -165,7 +181,7 @@ func (uis *UserInfoSyncer) getUserEmail(ctx *userInfoSyncContext) (string, error
 	return firstEmail, nil
 }
 
-func (uis *UserInfoSyncer) getAllEmails(ctx *userInfoSyncContext) ([]github.UserEmail, error) {
+func (uis *UserInfoSyncer) getAllGithubEmails(ctx *userInfoSyncContext) ([]github.UserEmail, error) {
 	if !sliceContains(ctx.user.GithubScopes, "user") && !sliceContains(ctx.user.GithubScopes, "user:email") {
 		return []github.UserEmail{}, nil
 	}
@@ -175,6 +191,16 @@ func (uis *UserInfoSyncer) getAllEmails(ctx *userInfoSyncContext) ([]github.User
 		PerPage: 100,
 	})
 	return emails, err
+}
+
+func (uis *UserInfoSyncer) getCurrentlySyncedEmails(ctx *userInfoSyncContext) ([]string, error) {
+	emails := []string{}
+	err := uis.db.Select(&emails, `SELECT email	FROM emails WHERE user_id = $1`, ctx.user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return emails, nil
 }
 
 func (uis *UserInfoSyncer) getIsEducation(ctx *userInfoSyncContext) (*bool, error) {
@@ -211,10 +237,14 @@ func (uis *UserInfoSyncer) updateEmails(tx *sqlx.Tx, ctx *userInfoSyncContext) e
 			return err
 		}
 		query = uis.db.Rebind(query)
+		log.Printf("level=debug sync=user_info login=%s query=%q args=%v",
+			ctx.user.Login.String, query, args)
 		_, err = tx.Exec(query, args...)
 		if err != nil {
 			return err
 		}
+	} else {
+		log.Printf("msg=\"no emails to delete\" sync=user_info login=%s", ctx.user.Login.String)
 	}
 
 	diffEmails = []string{}
@@ -224,23 +254,28 @@ func (uis *UserInfoSyncer) updateEmails(tx *sqlx.Tx, ctx *userInfoSyncContext) e
 		}
 	}
 
-	if len(diffEmails) > 0 {
-		for _, email := range diffEmails {
-			now := time.Now().UTC()
-			vars := map[string]interface{}{
-				"user_id":    ctx.user.ID,
-				"email":      email,
-				"created_at": now,
-				"updated_at": now,
-			}
-			query, args, err := sqlx.Named(`
-			INSERT INTO emails VALUES (?)
-		`, vars)
-			query = uis.db.Rebind(query)
-			_, err = tx.Exec(query, args...)
-			if err != nil {
-				return err
-			}
+	if len(diffEmails) == 0 {
+		log.Printf("msg=\"no emails to add\" sync=user_info login=%s", ctx.user.Login.String)
+		return nil
+	}
+
+	for _, email := range diffEmails {
+		now := time.Now().UTC()
+		vars := map[string]interface{}{
+			"user_id":    ctx.user.ID,
+			"email":      email,
+			"created_at": now,
+			"updated_at": now,
+		}
+		query, args, err := sqlx.Named(`
+			INSERT INTO emails (user_id, email, created_at, updated_at)
+			VALUES (:user_id, :email, :created_at, :updated_at)`, vars)
+		query = uis.db.Rebind(query)
+		log.Printf("level=debug sync=user_info login=%s query=%q args=%v",
+			ctx.user.Login.String, query, args)
+		_, err = tx.Exec(query, args...)
+		if err != nil {
+			return err
 		}
 	}
 
