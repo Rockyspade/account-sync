@@ -22,19 +22,6 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 	return ts.token, nil
 }
 
-type UserSyncError struct {
-	TravisLogin    string
-	TravisGithubID int
-	GithubLogin    string
-	GithubID       int
-}
-
-func (err *UserSyncError) Error() string {
-	return fmt.Sprintf("msg=\"updating user failed because of mismatched data\" "+
-		"travis_github_id=%v github_id=%v travis_login=%v github_login=%v",
-		err.TravisGithubID, err.GithubID, err.TravisLogin, err.GithubLogin)
-}
-
 type Syncer struct {
 	db  *sqlx.DB
 	cfg *Config
@@ -58,6 +45,9 @@ func (syncer *Syncer) Sync() {
 	}
 
 	syncer.db = db
+	userInfoSyncer := NewUserInfoSyncer(db, syncer.cfg)
+	orgSyncer := NewOrganizationSyncer(db, syncer.cfg)
+	ownerReposSyncer := NewOwnerRepositoriesSyncer(db, syncer.cfg)
 
 	ghTokCol, err := encryptedcolumn.NewEncryptedColumn(syncer.cfg.EncryptionKey, true)
 	if err != nil {
@@ -107,7 +97,7 @@ func (syncer *Syncer) Sync() {
 
 		started := time.Now().UTC()
 		log.Printf("state=started sync=user_info login=%v", githubUsername)
-		err = syncer.syncUser(user, client)
+		err = userInfoSyncer.Sync(user, client)
 		if err != nil {
 			addErr(err)
 			log.Printf("state=errored sync=user_info err=%v login=%v", err, githubUsername)
@@ -118,7 +108,7 @@ func (syncer *Syncer) Sync() {
 
 		started = time.Now().UTC()
 		log.Printf("state=started sync=organizations login=%v", githubUsername)
-		err = syncer.syncOrganizations(user, client)
+		err = orgSyncer.Sync(user, client)
 		if err != nil {
 			addErr(err)
 			log.Printf("state=errored sync=organizations err=%v login=%v", err, githubUsername)
@@ -129,7 +119,7 @@ func (syncer *Syncer) Sync() {
 
 		started = time.Now().UTC()
 		log.Printf("state=started sync=repositories login=%v", githubUsername)
-		err = syncer.syncOwnerRepositories(user, client)
+		err = ownerReposSyncer.Sync(user, client)
 		if err != nil {
 			addErr(err)
 			continue
@@ -146,171 +136,4 @@ func (syncer *Syncer) Sync() {
 			log.Printf("level=error login=%s err=%q", githubUsername, err.Error())
 		}
 	}
-}
-
-func (syncer *Syncer) syncUser(user *User, client *github.Client) error {
-	ghUser, _, err := client.Users.Get(user.Login.String)
-	if err != nil {
-		return err
-	}
-
-	syncErr := &UserSyncError{
-		TravisLogin:    user.Login.String,
-		TravisGithubID: user.GithubID,
-		GithubLogin:    *ghUser.Login,
-		GithubID:       *ghUser.ID,
-	}
-
-	if user.GithubID != *ghUser.ID {
-		return syncErr
-	}
-
-	if user.Login.String != *ghUser.Login {
-		return syncErr
-	}
-
-	email, err := syncer.getUserEmail(user, ghUser, client)
-	if err != nil {
-		return err
-	}
-
-	edu, err := syncer.getIsEducation(user, ghUser, client)
-	if err != nil {
-		return err
-	}
-
-	isEdu := user.Education
-	if edu != nil {
-		isEdu = *edu
-	}
-
-	tx, err := syncer.db.Beginx()
-	if err != nil {
-		return err
-	}
-
-	log.Printf("msg=\"updating user info\" sync=user_info login=%v", user.Login.String)
-	_, err = tx.Exec(`
-		UPDATE users
-		SET name = $1, login = $2, gravatar_id = $3, email = $4, education = $5
-		WHERE id = $6
-	`, *ghUser.Name, *ghUser.Login, *ghUser.GravatarID, email, isEdu,
-		user.ID)
-
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
-func (syncer *Syncer) getUserEmail(user *User, ghUser *github.User, client *github.Client) (string, error) {
-	email := *ghUser.Email
-	if email != "" {
-		return email, nil
-	}
-
-	allEmails, err := syncer.getAllEmails(user, client)
-	if err != nil {
-		return "", err
-	}
-
-	primaryEmail := ""
-	firstEmail := ""
-	verifiedEmail := ""
-	for i, email := range allEmails {
-		if i == 0 {
-			firstEmail = *email.Email
-		}
-
-		if verifiedEmail == "" && email.Verified != nil && *email.Verified {
-			verifiedEmail = *email.Email
-		}
-
-		if primaryEmail == "" && email.Primary != nil && *email.Primary {
-			primaryEmail = *email.Email
-		}
-	}
-
-	if primaryEmail != "" {
-		return primaryEmail, nil
-	}
-
-	if verifiedEmail != "" {
-		return verifiedEmail, nil
-	}
-
-	if user.Email.String != "" {
-		return user.Email.String, nil
-	}
-
-	return firstEmail, nil
-}
-
-func (syncer *Syncer) getAllEmails(user *User, client *github.Client) ([]github.UserEmail, error) {
-	if !sliceContains(user.GithubScopes, "user") && !sliceContains(user.GithubScopes, "user:email") {
-		return []github.UserEmail{}, nil
-	}
-
-	emails, _, err := client.Users.ListEmails(&github.ListOptions{
-		Page:    1,
-		PerPage: 100,
-	})
-	return emails, err
-}
-
-func (syncer *Syncer) getIsEducation(user *User, ghUser *github.User, client *github.Client) (*bool, error) {
-	req, err := client.NewRequest("GET", "https://education.github.com/api/user", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	body := map[string]bool{"student": false}
-
-	_, err = client.Do(req, &body)
-	if err != nil {
-		return nil, err
-	}
-
-	student := body["student"]
-
-	return &student, nil
-}
-
-func (syncer *Syncer) syncOrganizations(user *User, client *github.Client) error {
-	return nil
-}
-
-func (syncer *Syncer) syncOwnerRepositories(user *User, client *github.Client) error {
-	// TODO: 100% less hardcoding
-	startPage := 1
-	curPage := startPage
-	for {
-		opts := &github.RepositoryListOptions{
-			Type: "public",
-			ListOptions: github.ListOptions{
-				PerPage: 100,
-				Page:    curPage,
-			},
-		}
-
-		log.Printf("msg=\"fetching repositories\" page=%v login=%v",
-			curPage, user.Login.String)
-		repos, response, err := client.Repositories.List(user.Login.String, opts)
-		if err != nil {
-			return err
-		}
-
-		for _, repo := range repos {
-			log.Printf("login=%v repo_id=%v repo_full_name=%v\n",
-				user.Login.String, *repo.ID, *repo.FullName)
-		}
-
-		if response.NextPage == 0 {
-			break
-		}
-
-		curPage += 1
-	}
-	return nil
 }
