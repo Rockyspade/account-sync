@@ -37,8 +37,8 @@ func (ors *OwnerRepositoriesSyncer) Sync(user *User, client *github.Client) erro
 		}
 
 		for _, repo := range repos {
-			log.Printf("login=%v repo_id=%v repo_full_name=%v\n",
-				user.Login.String, *repo.ID, *repo.FullName)
+			log.Printf("page=%v login=%v repo_id=%v repo_full_name=%v\n",
+				curPage, user.Login.String, *repo.ID, *repo.FullName)
 		}
 
 		if response.NextPage == 0 {

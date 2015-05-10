@@ -50,6 +50,9 @@ func (osync *OrganizationSyncer) Sync(user *User, client *github.Client) error {
 
 	for _, org := range curOrgs {
 		log.Printf("sync=organizations login=%s org=%s", user.Login.String, org.Login.String)
+		// TODO: create or update org
+		// TODO: create new memberships
+		// TODO: remove outdated memberships
 	}
 
 	return nil
@@ -79,12 +82,19 @@ func (osync *OrganizationSyncer) getGithubOrgs(ctx *orgSyncContext) ([]*github.O
 		}
 
 		for _, org := range ghOrgs {
-			log.Printf("msg=\"fetching full org\" sync=organizations login=%v org=%v",
-				ctx.user.Login.String, *org.Login)
+			log.Printf("msg=\"fetching full org\" sync=organizations login=%v page=%v org=%v",
+				ctx.user.Login.String, listOpts.Page, *org.Login)
 
 			fullOrg, _, err := ctx.client.Organizations.Get(*org.Login)
 			if err != nil {
 				return allOrgs, err
+			}
+
+			if *fullOrg.PublicRepos > osync.cfg.OrganizationsRepositoriesLimit {
+				log.Printf("msg=\"skipping org\" sync=organizations login=%v page=%v org=%v public_repos=%v public_repos_limit=%v",
+					ctx.user.Login.String, listOpts.Page, *org.Login, *org.PublicRepos,
+					osync.cfg.OrganizationsRepositoriesLimit)
+				continue
 			}
 			allOrgs = append(allOrgs, fullOrg)
 		}
