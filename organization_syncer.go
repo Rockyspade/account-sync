@@ -30,12 +30,13 @@ func (osync *OrganizationSyncer) Sync(user *User, client *github.Client) error {
 		curOrgs: map[string]*Organization{},
 		ghOrgs:  map[string]*github.Organization{},
 	}
-	curOrgs, err := osync.getCurrentlySyncedOrganizations(ctx)
+
+	err := user.HydrateOrganizations(osync.db)
 	if err != nil {
 		return err
 	}
 
-	for _, org := range curOrgs {
+	for _, org := range user.Organizations {
 		ctx.curOrgs[org.Login.String] = org
 	}
 
@@ -48,7 +49,7 @@ func (osync *OrganizationSyncer) Sync(user *User, client *github.Client) error {
 		ctx.ghOrgs[*org.Login] = org
 	}
 
-	for _, org := range curOrgs {
+	for _, org := range user.Organizations {
 		log.Printf("sync=organizations login=%s org=%s", user.Login.String, org.Login.String)
 		// TODO: create or update org
 		// TODO: create new memberships

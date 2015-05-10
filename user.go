@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"gopkg.in/yaml.v2"
 )
 
@@ -29,7 +30,8 @@ type User struct {
 	GithubScopesYAML sql.NullString `db:"github_scopes"`
 	Education        bool           `db:"education"`
 
-	GithubScopes []string
+	GithubScopes  []string
+	Organizations []*Organization
 }
 
 func (user *User) Hydrate() error {
@@ -46,23 +48,18 @@ func (user *User) Hydrate() error {
 	return yaml.Unmarshal([]byte(user.GithubScopesYAML.String), &user.GithubScopes)
 }
 
-func (user *User) Clone() *User {
-	return &User{
-		ID:               user.ID,
-		Name:             user.Name,
-		Login:            user.Login,
-		Email:            user.Email,
-		CreatedAt:        user.CreatedAt,
-		UpdatedAt:        user.UpdatedAt,
-		IsAdmin:          user.IsAdmin,
-		GithubID:         user.GithubID,
-		GithubOauthToken: user.GithubOauthToken,
-		GravatarID:       user.GravatarID,
-		IsSyncing:        user.IsSyncing,
-		Locale:           user.Locale,
-		SyncedAt:         user.SyncedAt,
-		GithubScopesYAML: user.GithubScopesYAML,
-		Education:        user.Education,
-		GithubScopes:     user.GithubScopes,
+func (user *User) HydrateOrganizations(db *sqlx.DB) error {
+	if user.Organizations != nil {
+		return nil
 	}
+
+	user.Organizations = []*Organization{}
+	return db.Select(&user.Organizations, `
+		SELECT *
+		FROM organizations
+		WHERE id IN (
+			SELECT organization_id
+			FROM memberships
+			WHERE user_id = $1
+		)`, user.ID)
 }

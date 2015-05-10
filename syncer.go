@@ -86,7 +86,11 @@ func (syncer *Syncer) Sync() {
 			continue
 		}
 
-		ts := &tokenSource{token: &oauth2.Token{AccessToken: token}}
+		ts := &tokenSource{
+			token: &oauth2.Token{
+				AccessToken: token,
+			},
+		}
 
 		tc := oauth2.NewClient(oauth2.NoContext, ts)
 		client := github.NewClient(tc)
