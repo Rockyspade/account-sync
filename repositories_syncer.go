@@ -156,12 +156,17 @@ func (rs *RepositoriesSyncer) syncRepo(ghRepo *github.Repository, ctx *repoSyncC
 	}
 
 	if repo == nil {
+		log.Printf("action=creating sync=repository repo_id=%v login=%v repo=%v",
+			*ghRepo.ID, ctx.user.Login.String, *ghRepo.FullName)
 		repo, err = rs.createRepo(ghRepo, ctx)
 		if err != nil {
 			return err
 		}
 	} else {
-		err = rs.updateRepo(ghRepo, repo, ctx)
+		log.Printf("action=updating sync=repository repo_id=%v login=%v repo=%v",
+			*ghRepo.ID, ctx.user.Login.String, *ghRepo.FullName)
+		repo.UpdateFromGithubRepository(ghRepo)
+		repo, err = rs.updateRepo(repo, ctx)
 		if err != nil {
 			return err
 		}
@@ -182,6 +187,7 @@ func (rs *RepositoriesSyncer) syncRepo(ghRepo *github.Repository, ctx *repoSyncC
 func (rs *RepositoriesSyncer) findRepoOwner(ghRepo *github.Repository, ctx *repoSyncContext) (*Owner, error) {
 	owner := &Owner{}
 
+	log.Printf("level=debug sync=repository msg=\"finding user\" github_id=%v", *ghRepo.Owner.ID)
 	user, err := rs.findUserByGithubID(*ghRepo.Owner.ID)
 	if err != nil {
 		return nil, err
@@ -193,6 +199,7 @@ func (rs *RepositoriesSyncer) findRepoOwner(ghRepo *github.Repository, ctx *repo
 		return owner, nil
 	}
 
+	log.Printf("level=debug sync=repository msg=\"finding org\" github_id=%v", *ghRepo.Owner.ID)
 	org, err := rs.findOrgByGithubID(*ghRepo.Owner.ID)
 	if err != nil {
 		return nil, err
@@ -220,27 +227,38 @@ func (rs *RepositoriesSyncer) findRepoByGithubID(ghRepoID int, ctx *repoSyncCont
 func (rs *RepositoriesSyncer) createRepo(ghRepo *github.Repository, ctx *repoSyncContext) (*Repository, error) {
 	now := time.Now().UTC()
 	repo := &Repository{
-		CreatedAt:      &now,
-		DefaultBranch:  sql.NullString{String: *ghRepo.DefaultBranch, Valid: true},
-		Description:    sql.NullString{String: *ghRepo.Description, Valid: true},
-		GithubID:       int64(*ghRepo.ID),
-		GithubLanguage: sql.NullString{String: *ghRepo.Language, Valid: true},
-		Name:           sql.NullString{String: *ghRepo.Name, Valid: true},
-		OwnerID:        int64(*ghRepo.Owner.ID),
-		OwnerName:      sql.NullString{String: *ghRepo.Owner.Name, Valid: true},
-		OwnerType:      sql.NullString{String: *ghRepo.Owner.Type, Valid: true},
-		Private:        *ghRepo.Private,
-		URL:            sql.NullString{String: *ghRepo.Homepage, Valid: true},
-		UpdatedAt:      &now,
+		CreatedAt: &now,
+		UpdatedAt: &now,
 	}
+	repo.UpdateFromGithubRepository(ghRepo)
 
 	res, err := rs.db.NamedExec(`
 		INSERT INTO repositories (
-			created_at, default_branch, description, github_id, github_language, name, owner_id,
-			owner_name, owner_type, private, url, updated_at
+			created_at,
+			default_branch,
+			description,
+			github_id,
+			github_language,
+			name,
+			owner_id,
+			owner_name,
+			owner_type,
+			private,
+			url,
+			updated_at
 		) VALUES (
-			:created_at, :default_branch, :description, :github_id, :github_language, :name, :owner_id,
-			:owner_name, :owner_type, :private, :url, :updated_at
+			:created_at,
+			:default_branch,
+			:description,
+			:github_id,
+			:github_language,
+			:name,
+			:owner_id,
+			:owner_name,
+			:owner_type,
+			:private,
+			:url,
+			:updated_at
 		) RETURNING id
 	`, repo)
 	if err != nil {
@@ -256,8 +274,26 @@ func (rs *RepositoriesSyncer) createRepo(ghRepo *github.Repository, ctx *repoSyn
 	return repo, nil
 }
 
-func (rs *RepositoriesSyncer) updateRepo(ghRepo *github.Repository, repo *Repository, ctx *repoSyncContext) error {
-	return nil
+func (rs *RepositoriesSyncer) updateRepo(repo *Repository, ctx *repoSyncContext) (*Repository, error) {
+	now := time.Now().UTC()
+	repo.UpdatedAt = &now
+	_, err := rs.db.NamedExec(`
+		UPDATE repositories
+		SET
+			default_branch = :default_branch
+			description = :description
+			github_id = :github_id
+			github_language = :github_language
+			name = :name
+			owner_id = :owner_id
+			owner_name = :owner_name
+			owner_type = :owner_type
+			private = :private
+			url = :url
+			updated_at = :updated_at
+		WHERE id = :id
+	`, repo)
+	return repo, err
 }
 
 func (rs *RepositoriesSyncer) findUserByGithubID(ghUserID int) (*User, error) {
