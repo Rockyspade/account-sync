@@ -182,7 +182,7 @@ func (rs *RepositoriesSyncer) syncRepo(ghRepo *github.Repository, ctx *repoSyncC
 func (rs *RepositoriesSyncer) findRepoOwner(ghRepo *github.Repository, ctx *repoSyncContext) (*Owner, error) {
 	owner := &Owner{}
 
-	user, err := rs.findUser(*ghRepo.Owner.ID)
+	user, err := rs.findUserByGithubID(*ghRepo.Owner.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func (rs *RepositoriesSyncer) findRepoOwner(ghRepo *github.Repository, ctx *repo
 		return owner, nil
 	}
 
-	org, err := rs.findOrganization(*ghRepo.Owner.ID)
+	org, err := rs.findOrgByGithubID(*ghRepo.Owner.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -208,37 +208,74 @@ func (rs *RepositoriesSyncer) findRepoOwner(ghRepo *github.Repository, ctx *repo
 }
 
 func (rs *RepositoriesSyncer) findRepoByGithubID(ghRepoID int, ctx *repoSyncContext) (*Repository, error) {
-	return nil, nil
+	repo := &Repository{}
+	err := rs.db.Get(repo, `SELECT * FROM repositories WHERE github_id = $1`, ghRepoID)
+	if err == sql.ErrNoRows {
+		repo = nil
+		err = nil
+	}
+	return repo, err
 }
 
 func (rs *RepositoriesSyncer) createRepo(ghRepo *github.Repository, ctx *repoSyncContext) (*Repository, error) {
-	return nil, nil
+	now := time.Now().UTC()
+	repo := &Repository{
+		CreatedAt:      &now,
+		DefaultBranch:  sql.NullString{String: *ghRepo.DefaultBranch, Valid: true},
+		Description:    sql.NullString{String: *ghRepo.Description, Valid: true},
+		GithubID:       int64(*ghRepo.ID),
+		GithubLanguage: sql.NullString{String: *ghRepo.Language, Valid: true},
+		Name:           sql.NullString{String: *ghRepo.Name, Valid: true},
+		OwnerID:        int64(*ghRepo.Owner.ID),
+		OwnerName:      sql.NullString{String: *ghRepo.Owner.Name, Valid: true},
+		OwnerType:      sql.NullString{String: *ghRepo.Owner.Type, Valid: true},
+		Private:        *ghRepo.Private,
+		URL:            sql.NullString{String: *ghRepo.Homepage, Valid: true},
+		UpdatedAt:      &now,
+	}
+
+	res, err := rs.db.NamedExec(`
+		INSERT INTO repositories (
+			created_at, default_branch, description, github_id, github_language, name, owner_id,
+			owner_name, owner_type, private, url, updated_at
+		) VALUES (
+			:created_at, :default_branch, :description, :github_id, :github_language, :name, :owner_id,
+			:owner_name, :owner_type, :private, :url, :updated_at
+		) RETURNING id
+	`, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	repo.ID = id
+
+	return repo, nil
 }
 
 func (rs *RepositoriesSyncer) updateRepo(ghRepo *github.Repository, repo *Repository, ctx *repoSyncContext) error {
 	return nil
 }
 
-func (rs *RepositoriesSyncer) findUser(userID int) (*User, error) {
-	user := &User{Login: sql.NullString{String: sentinelString, Valid: true}}
-	err := rs.db.Get(user, `SELECT * FROM users WHERE github_id = $1`, userID)
+func (rs *RepositoriesSyncer) findUserByGithubID(ghUserID int) (*User, error) {
+	user := &User{}
+	err := rs.db.Get(user, `SELECT * FROM users WHERE github_id = $1`, ghUserID)
 	if err == sql.ErrNoRows {
+		user = nil
 		err = nil
-	}
-	if user.Login.String == sentinelString {
-		return nil, err
 	}
 	return user, err
 }
 
-func (rs *RepositoriesSyncer) findOrganization(orgID int) (*Organization, error) {
-	org := &Organization{Login: sql.NullString{String: sentinelString, Valid: true}}
-	err := rs.db.Get(org, `SELECT * FROM organizations WHERE github_id = $1`, orgID)
+func (rs *RepositoriesSyncer) findOrgByGithubID(ghOrgID int) (*Organization, error) {
+	org := &Organization{}
+	err := rs.db.Get(org, `SELECT * FROM organizations WHERE github_id = $1`, ghOrgID)
 	if err == sql.ErrNoRows {
+		org = nil
 		err = nil
-	}
-	if org.Login.String == sentinelString {
-		return nil, err
 	}
 	return org, err
 }

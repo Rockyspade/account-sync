@@ -8,10 +8,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const (
-	sentinelString = "--sentinel--"
-)
-
 type OwnerRepositoriesSyncer struct {
 	db  *sqlx.DB
 	cfg *Config

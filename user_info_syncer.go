@@ -11,9 +11,9 @@ import (
 
 type UserSyncError struct {
 	TravisLogin    string
-	TravisGithubID int
+	TravisGithubID int64
 	GithubLogin    string
-	GithubID       int
+	GithubID       int64
 }
 
 func (err *UserSyncError) Error() string {
@@ -58,12 +58,12 @@ func (uis *UserInfoSyncer) Sync(user *User, client *github.Client) error {
 
 	syncErr := &UserSyncError{
 		TravisLogin:    user.Login.String,
-		TravisGithubID: user.GithubID,
+		TravisGithubID: int64(user.GithubID),
 		GithubLogin:    *ghUser.Login,
-		GithubID:       *ghUser.ID,
+		GithubID:       int64(*ghUser.ID),
 	}
 
-	if user.GithubID != *ghUser.ID {
+	if user.GithubID != int64(*ghUser.ID) {
 		return syncErr
 	}
 
@@ -267,13 +267,9 @@ func (uis *UserInfoSyncer) updateEmails(tx *sqlx.Tx, ctx *userInfoSyncContext) e
 			"created_at": now,
 			"updated_at": now,
 		}
-		query, args, err := sqlx.Named(`
+		_, err := tx.NamedExec(`
 			INSERT INTO emails (user_id, email, created_at, updated_at)
 			VALUES (:user_id, :email, :created_at, :updated_at)`, vars)
-		query = uis.db.Rebind(query)
-		log.Printf("level=debug sync=user_info login=%s query=%q args=%v",
-			ctx.user.Login.String, query, args)
-		_, err = tx.Exec(query, args...)
 		if err != nil {
 			return err
 		}

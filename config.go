@@ -74,4 +74,5 @@ func (cfg *Config) Validate() error {
 	if sliceContains(cfg.SyncTypes, "private") {
 		return errPrivateSyncNotSupported
 	}
+	return nil
 }

@@ -14,21 +14,22 @@ var (
 )
 
 type User struct {
-	ID               int            `db:"id"`
-	Name             sql.NullString `db:"name"`
-	Login            sql.NullString `db:"login"`
-	Email            sql.NullString `db:"email"`
+	ID int64 `db:"id"`
+
 	CreatedAt        *time.Time     `db:"created_at"`
-	UpdatedAt        *time.Time     `db:"updated_at"`
-	IsAdmin          bool           `db:"is_admin"`
-	GithubID         int            `db:"github_id"`
+	Education        bool           `db:"education"`
+	Email            sql.NullString `db:"email"`
+	GithubID         int64          `db:"github_id"`
 	GithubOauthToken sql.NullString `db:"github_oauth_token"`
+	GithubScopesYAML sql.NullString `db:"github_scopes"`
 	GravatarID       sql.NullString `db:"gravatar_id"`
+	IsAdmin          bool           `db:"is_admin"`
 	IsSyncing        bool           `db:"is_syncing"`
 	Locale           sql.NullString `db:"locale"`
+	Login            sql.NullString `db:"login"`
+	Name             sql.NullString `db:"name"`
 	SyncedAt         *time.Time     `db:"synced_at"`
-	GithubScopesYAML sql.NullString `db:"github_scopes"`
-	Education        bool           `db:"education"`
+	UpdatedAt        *time.Time     `db:"updated_at"`
 
 	GithubScopes  []string
 	Organizations []*Organization
