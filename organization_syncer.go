@@ -93,7 +93,7 @@ func (osync *OrganizationSyncer) getGithubOrgs(ctx *orgSyncContext) ([]*github.O
 
 			if *fullOrg.PublicRepos > osync.cfg.OrganizationsRepositoriesLimit {
 				log.Printf("msg=\"skipping org\" sync=organizations login=%v page=%v org=%v public_repos=%v public_repos_limit=%v",
-					ctx.user.Login.String, listOpts.Page, *org.Login, *org.PublicRepos,
+					ctx.user.Login.String, listOpts.Page, *fullOrg.Login, *fullOrg.PublicRepos,
 					osync.cfg.OrganizationsRepositoriesLimit)
 				continue
 			}

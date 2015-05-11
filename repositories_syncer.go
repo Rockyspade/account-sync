@@ -47,9 +47,7 @@ func (rs *RepositoriesSyncer) Sync(owner *Owner, user *User, client *github.Clie
 	return githubRepoIDs, nil
 }
 func (rs *RepositoriesSyncer) syncReposOfType(syncType string, ctx *repoSyncContext) ([]*int, error) {
-	// TODO: 100% less hardcoding
-	startPage := 1
-	curPage := startPage
+	curPage := rs.cfg.RepositoriesStartPage
 
 	for {
 		opts := &github.RepositoryListOptions{
@@ -130,29 +128,45 @@ func (rs *RepositoriesSyncer) shouldSync(repo *github.Repository) bool {
 	return sliceContains(rs.cfg.SyncTypes, t)
 }
 
-func (rs *RepositoriesSyncer) syncRepo(repo *github.Repository, ctx *repoSyncContext) error {
+func (rs *RepositoriesSyncer) syncRepo(ghRepo *github.Repository, ctx *repoSyncContext) error {
 	log.Printf("sync=repository repo_id=%v login=%v repo=%v\n",
-		*repo.ID, ctx.user.Login.String, *repo.FullName)
-	if !rs.shouldSync(repo) {
+		*ghRepo.ID, ctx.user.Login.String, *ghRepo.FullName)
+	if !rs.shouldSync(ghRepo) {
 		log.Printf("msg=\"skipping\" sync=repository repo_id=%v login=%v repo=%v\n",
-			*repo.ID, ctx.user.Login.String, *repo.FullName)
+			*ghRepo.ID, ctx.user.Login.String, *ghRepo.FullName)
 		return nil
 	}
 
 	started := time.Now().UTC()
 	log.Printf("state=started sync=repository repo_id=%v login=%v repo=%v",
-		*repo.ID, ctx.user.Login.String, *repo.FullName)
+		*ghRepo.ID, ctx.user.Login.String, *ghRepo.FullName)
 
-	owner, err := rs.findRepoOwner(repo, ctx)
+	owner, err := rs.findRepoOwner(ghRepo, ctx)
 	if err != nil {
 		return err
 	}
 
 	if owner == nil {
-		owner, err = rs.createRepoOwner(repo, ctx)
+		owner, err = rs.createRepoOwner(ghRepo, ctx)
 	}
 
-	// TODO: find and update || create repo
+	repo, err := rs.findRepoByGithubID(*ghRepo.ID, ctx)
+	if err != nil {
+		return err
+	}
+
+	if repo == nil {
+		repo, err = rs.createRepo(ghRepo, ctx)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = rs.updateRepo(ghRepo, repo, ctx)
+		if err != nil {
+			return err
+		}
+	}
+
 	// TODO: sync permissions if present
 	// TODO: permit if permittable
 
@@ -161,14 +175,14 @@ func (rs *RepositoriesSyncer) syncRepo(repo *github.Repository, ctx *repoSyncCon
 	}
 
 	log.Printf("state=completed sync=repository repo_id=%v login=%v repo=%v duration=%v",
-		*repo.ID, ctx.user.Login.String, *repo.FullName, time.Now().UTC().Sub(started))
+		*ghRepo.ID, ctx.user.Login.String, *ghRepo.FullName, time.Now().UTC().Sub(started))
 	return nil
 }
 
-func (rs *RepositoriesSyncer) findRepoOwner(repo *github.Repository, ctx *repoSyncContext) (*Owner, error) {
+func (rs *RepositoriesSyncer) findRepoOwner(ghRepo *github.Repository, ctx *repoSyncContext) (*Owner, error) {
 	owner := &Owner{}
 
-	user, err := rs.findUser(*repo.Owner.ID)
+	user, err := rs.findUser(*ghRepo.Owner.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +193,7 @@ func (rs *RepositoriesSyncer) findRepoOwner(repo *github.Repository, ctx *repoSy
 		return owner, nil
 	}
 
-	org, err := rs.findOrganization(*repo.Owner.ID)
+	org, err := rs.findOrganization(*ghRepo.Owner.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +205,18 @@ func (rs *RepositoriesSyncer) findRepoOwner(repo *github.Repository, ctx *repoSy
 	}
 
 	return nil, nil
+}
+
+func (rs *RepositoriesSyncer) findRepoByGithubID(ghRepoID int, ctx *repoSyncContext) (*Repository, error) {
+	return nil, nil
+}
+
+func (rs *RepositoriesSyncer) createRepo(ghRepo *github.Repository, ctx *repoSyncContext) (*Repository, error) {
+	return nil, nil
+}
+
+func (rs *RepositoriesSyncer) updateRepo(ghRepo *github.Repository, repo *Repository, ctx *repoSyncContext) error {
+	return nil
 }
 
 func (rs *RepositoriesSyncer) findUser(userID int) (*User, error) {
@@ -218,5 +244,80 @@ func (rs *RepositoriesSyncer) findOrganization(orgID int) (*Organization, error)
 }
 
 func (rs *RepositoriesSyncer) createRepoOwner(repo *github.Repository, ctx *repoSyncContext) (*Owner, error) {
+	switch *repo.Owner.Type {
+	case "User":
+		ghUser, err := rs.getGithubUserByID(*repo.Owner.ID, ctx)
+		if err != nil {
+			return nil, err
+		}
+		user, err := rs.createUserFromGithubUser(ghUser, ctx)
+		if err != nil {
+			return nil, err
+		}
+		owner := &Owner{
+			Type: "user",
+			User: user,
+		}
+		log.Printf("level=warn login=%v id=%v sync=repository slug=%v status=created_user reason=owner_not_found",
+			user.Login, user.ID, *repo.FullName)
+		return owner, nil
+	case "Organization":
+		ghOrg, err := rs.getGithubOrgByID(*repo.Owner.ID, ctx)
+		if err != nil {
+			return nil, err
+		}
+		org, err := rs.createOrgFromGithubOrg(ghOrg, ctx)
+		if err != nil {
+			return nil, err
+		}
+		owner := &Owner{
+			Type:         "organization",
+			Organization: org,
+		}
+		log.Printf("level=warn login=%v id=%v sync=repository slug=%v status=created_org reason=owner_not_found",
+			org.Login, org.ID, *repo.FullName)
+		return owner, nil
+	}
+
+	return nil, nil
+}
+
+func (rs *RepositoriesSyncer) getGithubUserByID(userID int, ctx *repoSyncContext) (*github.User, error) {
+	reqURL := fmt.Sprintf("/user/%v", userID)
+	req, err := ctx.client.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	user := &github.User{}
+	_, err = ctx.client.Do(req, user)
+	if err != nil {
+		return user, err
+	}
+
+	return user, err
+}
+
+func (rs *RepositoriesSyncer) getGithubOrgByID(orgID int, ctx *repoSyncContext) (*github.Organization, error) {
+	reqURL := fmt.Sprintf("/organizations/%v", orgID)
+	req, err := ctx.client.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	org := &github.Organization{}
+	_, err = ctx.client.Do(req, org)
+	if err != nil {
+		return org, err
+	}
+
+	return org, err
+}
+
+func (rs *RepositoriesSyncer) createUserFromGithubUser(ghUser *github.User, ctx *repoSyncContext) (*User, error) {
+	return nil, nil
+}
+
+func (rs *RepositoriesSyncer) createOrgFromGithubOrg(ghOrg *github.Organization, ctx *repoSyncContext) (*Organization, error) {
 	return nil, nil
 }

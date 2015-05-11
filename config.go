@@ -1,6 +1,10 @@
 package accountsync
 
-import "github.com/codegangsta/cli"
+import (
+	"fmt"
+
+	"github.com/codegangsta/cli"
+)
 
 var (
 	EncryptionKeyFlag = &cli.StringFlag{
@@ -42,6 +46,8 @@ var (
 		*RepositoriesStartPageFlag,
 		*SyncTypesFlag,
 	}
+
+	errPrivateSyncNotSupported = fmt.Errorf("private sync is not supported (yet)!")
 )
 
 type Config struct {
@@ -61,5 +67,11 @@ func NewConfig(c *cli.Context) *Config {
 		OrganizationsRepositoriesLimit: c.Int("organizations-repositories-limit"),
 		RepositoriesStartPage:          c.Int("repositories-start-page"),
 		SyncTypes:                      c.StringSlice("sync-types"),
+	}
+}
+
+func (cfg *Config) Validate() error {
+	if sliceContains(cfg.SyncTypes, "private") {
+		return errPrivateSyncNotSupported
 	}
 }

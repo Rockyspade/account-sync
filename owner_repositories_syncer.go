@@ -64,7 +64,11 @@ func (ors *OwnerRepositoriesSyncer) Sync(user *User, client *github.Client) erro
 	}
 
 	for _, org := range user.Organizations {
-		owners = append(owners, &Owner{Type: "organization", Organization: org})
+		owners = append(owners,
+			&Owner{
+				Type:         "organization",
+				Organization: org,
+			})
 	}
 
 	hadRepoSyncErr := false
