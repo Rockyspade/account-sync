@@ -9,3 +9,10 @@ func sliceContains(sl []string, s string) bool {
 
 	return false
 }
+
+func strPtrOrEmpty(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
+}

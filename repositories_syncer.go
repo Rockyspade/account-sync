@@ -280,16 +280,16 @@ func (rs *RepositoriesSyncer) updateRepo(repo *Repository, ctx *repoSyncContext)
 	_, err := rs.db.NamedExec(`
 		UPDATE repositories
 		SET
-			default_branch = :default_branch
-			description = :description
-			github_id = :github_id
-			github_language = :github_language
-			name = :name
-			owner_id = :owner_id
-			owner_name = :owner_name
-			owner_type = :owner_type
-			private = :private
-			url = :url
+			default_branch = :default_branch,
+			description = :description,
+			github_id = :github_id,
+			github_language = :github_language,
+			name = :name,
+			owner_id = :owner_id,
+			owner_name = :owner_name,
+			owner_type = :owner_type,
+			private = :private,
+			url = :url,
 			updated_at = :updated_at
 		WHERE id = :id
 	`, repo)
