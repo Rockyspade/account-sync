@@ -269,7 +269,7 @@ func (rs *RepositoriesSyncer) createRepo(ghRepo *github.Repository, ctx *repoSyn
 	if err != nil {
 		return nil, err
 	}
-	repo.ID = id
+	repo.ID = sql.NullInt64{Int64: int64(id), Valid: true}
 
 	return repo, nil
 }

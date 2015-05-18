@@ -58,12 +58,12 @@ func (uis *UserInfoSyncer) Sync(user *User, client *github.Client) error {
 
 	syncErr := &UserSyncError{
 		TravisLogin:    user.Login.String,
-		TravisGithubID: int64(user.GithubID),
+		TravisGithubID: int64(user.GithubID.Int64),
 		GithubLogin:    *ghUser.Login,
 		GithubID:       int64(*ghUser.ID),
 	}
 
-	if user.GithubID != int64(*ghUser.ID) {
+	if user.GithubID.Int64 != int64(*ghUser.ID) {
 		return syncErr
 	}
 
@@ -81,7 +81,7 @@ func (uis *UserInfoSyncer) Sync(user *User, client *github.Client) error {
 		return err
 	}
 
-	isEdu := user.Education
+	isEdu := user.Education.Bool
 	if edu != nil {
 		isEdu = *edu
 	}

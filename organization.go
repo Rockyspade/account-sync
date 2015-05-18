@@ -6,10 +6,11 @@ import (
 )
 
 type Organization struct {
-	ID        int            `db:"id"`
+	ID sql.NullInt64 `db:"id"`
+
 	Name      sql.NullString `db:"name"`
 	Login     sql.NullString `db:"login"`
-	GithubID  int            `db:"github_id"`
+	GithubID  sql.NullInt64  `db:"github_id"`
 	CreatedAt *time.Time     `db:"created_at"`
 	UpdatedAt *time.Time     `db:"updated_at"`
 	AvatarURL sql.NullString `db:"avatar_url"`

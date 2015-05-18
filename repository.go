@@ -8,7 +8,7 @@ import (
 )
 
 type Repository struct {
-	ID int64 `db:"id"`
+	ID sql.NullInt64 `db:"id"`
 
 	Active              sql.NullBool   `db:"active"`
 	CreatedAt           *time.Time     `db:"created_at"`
