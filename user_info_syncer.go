@@ -32,11 +32,11 @@ type userInfoSyncContext struct {
 }
 
 type UserInfoSyncer struct {
-	db  *sqlx.DB
+	db  *DB
 	cfg *Config
 }
 
-func NewUserInfoSyncer(db *sqlx.DB, cfg *Config) *UserInfoSyncer {
+func NewUserInfoSyncer(db *DB, cfg *Config) *UserInfoSyncer {
 	return &UserInfoSyncer{db: db, cfg: cfg}
 }
 

@@ -4,11 +4,10 @@ import (
 	"log"
 
 	"github.com/google/go-github/github"
-	"github.com/jmoiron/sqlx"
 )
 
 type OrganizationSyncer struct {
-	db  *sqlx.DB
+	db  *DB
 	cfg *Config
 }
 
@@ -19,7 +18,7 @@ type orgSyncContext struct {
 	ghOrgs  map[string]*github.Organization
 }
 
-func NewOrganizationSyncer(db *sqlx.DB, cfg *Config) *OrganizationSyncer {
+func NewOrganizationSyncer(db *DB, cfg *Config) *OrganizationSyncer {
 	return &OrganizationSyncer{db: db, cfg: cfg}
 }
 

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/go-github/github"
-	"github.com/jmoiron/sqlx"
 )
 
 type repoSyncContext struct {
@@ -17,11 +16,11 @@ type repoSyncContext struct {
 }
 
 type RepositoriesSyncer struct {
-	db  *sqlx.DB
+	db  *DB
 	cfg *Config
 }
 
-func NewRepositoriesSyncer(db *sqlx.DB, cfg *Config) *RepositoriesSyncer {
+func NewRepositoriesSyncer(db *DB, cfg *Config) *RepositoriesSyncer {
 	return &RepositoriesSyncer{
 		db:  db,
 		cfg: cfg,
@@ -188,7 +187,7 @@ func (rs *RepositoriesSyncer) findRepoOwner(ghRepo *github.Repository, ctx *repo
 	owner := &Owner{}
 
 	log.Printf("level=debug sync=repository msg=\"finding user\" github_id=%v", *ghRepo.Owner.ID)
-	user, err := rs.findUserByGithubID(*ghRepo.Owner.ID)
+	user, err := rs.db.FindUserByGithubID(*ghRepo.Owner.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +199,7 @@ func (rs *RepositoriesSyncer) findRepoOwner(ghRepo *github.Repository, ctx *repo
 	}
 
 	log.Printf("level=debug sync=repository msg=\"finding org\" github_id=%v", *ghRepo.Owner.ID)
-	org, err := rs.findOrgByGithubID(*ghRepo.Owner.ID)
+	org, err := rs.db.FindOrgByGithubID(*ghRepo.Owner.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -294,26 +293,6 @@ func (rs *RepositoriesSyncer) updateRepo(repo *Repository, ctx *repoSyncContext)
 		WHERE id = :id
 	`, repo)
 	return repo, err
-}
-
-func (rs *RepositoriesSyncer) findUserByGithubID(ghUserID int) (*User, error) {
-	user := &User{}
-	err := rs.db.Get(user, `SELECT * FROM users WHERE github_id = $1`, ghUserID)
-	if err == sql.ErrNoRows {
-		user = nil
-		err = nil
-	}
-	return user, err
-}
-
-func (rs *RepositoriesSyncer) findOrgByGithubID(ghOrgID int) (*Organization, error) {
-	org := &Organization{}
-	err := rs.db.Get(org, `SELECT * FROM organizations WHERE github_id = $1`, ghOrgID)
-	if err == sql.ErrNoRows {
-		org = nil
-		err = nil
-	}
-	return org, err
 }
 
 func (rs *RepositoriesSyncer) createRepoOwner(repo *github.Repository, ctx *repoSyncContext) (*Owner, error) {

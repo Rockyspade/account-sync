@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/go-github/github"
-	"github.com/jmoiron/sqlx"
 	"github.com/travis-ci/encrypted-column"
 	"golang.org/x/oauth2"
 
@@ -23,12 +22,19 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 }
 
 type Syncer struct {
-	db  *sqlx.DB
+	db  *DB
 	cfg *Config
 }
 
-func NewSyncer(cfg *Config) *Syncer {
-	return &Syncer{cfg: cfg}
+func NewSyncer(cfg *Config) (*Syncer, error) {
+	syncer := &Syncer{cfg: cfg}
+	log.Println("msg=\"creating database connection\"")
+	db, err := NewDB(syncer.cfg.DatabaseURL, syncer.cfg.SyncCacheSize)
+	if err != nil {
+		return nil, err
+	}
+	syncer.db = db
+	return syncer, nil
 }
 
 func (syncer *Syncer) Sync() {
@@ -38,16 +44,9 @@ func (syncer *Syncer) Sync() {
 		log.Fatal("msg=\"missing encryption key\"")
 	}
 
-	log.Println("msg=\"connecting to database\"")
-	db, err := sqlx.Connect("postgres", syncer.cfg.DatabaseURL)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	syncer.db = db
-	userInfoSyncer := NewUserInfoSyncer(db, syncer.cfg)
-	orgSyncer := NewOrganizationSyncer(db, syncer.cfg)
-	ownerReposSyncer := NewOwnerRepositoriesSyncer(db, syncer.cfg)
+	userInfoSyncer := NewUserInfoSyncer(syncer.db, syncer.cfg)
+	orgSyncer := NewOrganizationSyncer(syncer.db, syncer.cfg)
+	ownerReposSyncer := NewOwnerRepositoriesSyncer(syncer.db, syncer.cfg)
 
 	ghTokCol, err := encryptedcolumn.NewEncryptedColumn(syncer.cfg.EncryptionKey, true)
 	if err != nil {
@@ -68,7 +67,7 @@ func (syncer *Syncer) Sync() {
 		}
 
 		log.Printf("msg=\"fetching user\" login=%v", githubUsername)
-		err = db.Get(user, "SELECT * FROM users WHERE login = $1", githubUsername)
+		err = syncer.db.Get(user, "SELECT * FROM users WHERE login = $1", githubUsername)
 		if err != nil {
 			addErr(err)
 			continue

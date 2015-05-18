@@ -5,11 +5,10 @@ import (
 	"strings"
 
 	"github.com/google/go-github/github"
-	"github.com/jmoiron/sqlx"
 )
 
 type OwnerRepositoriesSyncer struct {
-	db  *sqlx.DB
+	db  *DB
 	cfg *Config
 }
 
@@ -37,7 +36,7 @@ func (eos *errOrgSync) Error() string {
 	return strings.Join(s, "; ")
 }
 
-func NewOwnerRepositoriesSyncer(db *sqlx.DB, cfg *Config) *OwnerRepositoriesSyncer {
+func NewOwnerRepositoriesSyncer(db *DB, cfg *Config) *OwnerRepositoriesSyncer {
 	return &OwnerRepositoriesSyncer{db: db, cfg: cfg}
 }
 
@@ -73,15 +72,19 @@ func (ors *OwnerRepositoriesSyncer) Sync(user *User, client *github.Client) erro
 	orgSyncErrors := map[string][]error{}
 
 	for _, owner := range owners {
-		rs := NewRepositoriesSyncer(ors.db, ors.cfg)
-		repoIDs, err := rs.Sync(owner, user, client)
-		if err != nil {
+		addErr := func(err error) {
 			hadRepoSyncErr = true
 			key := owner.Key()
 			if _, ok := orgSyncErrors[key]; !ok {
 				orgSyncErrors[key] = []error{}
 			}
 			orgSyncErrors[key] = append(orgSyncErrors[key], err)
+		}
+
+		rs := NewRepositoriesSyncer(ors.db, ors.cfg)
+		repoIDs, err := rs.Sync(owner, user, client)
+		if err != nil {
+			addErr(err)
 			continue
 		}
 

@@ -19,7 +19,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("err=%q", err.Error())
 		}
-		accountsync.NewSyncer(cfg).Sync()
+		syncer, err := accountsync.NewSyncer(cfg)
+		if err != nil {
+			log.Fatalf("err=%q", err.Error())
+		}
+		syncer.Sync()
 	}
 	app.Run(os.Args)
 }

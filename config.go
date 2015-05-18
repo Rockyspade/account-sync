@@ -37,6 +37,11 @@ var (
 		Value:  &cli.StringSlice{"public"},
 		EnvVar: "TRAVIS_ACCOUNT_SYNC_TYPES",
 	}
+	SyncCacheSizeFlag = &cli.IntFlag{
+		Name:   "sync-cache-size",
+		Value:  64,
+		EnvVar: "TRAVIS_ACCOUNT_SYNC_CACHE_SIZE",
+	}
 
 	Flags = []cli.Flag{
 		*EncryptionKeyFlag,
@@ -45,6 +50,7 @@ var (
 		*OrganizationsRepositoriesLimitFlag,
 		*RepositoriesStartPageFlag,
 		*SyncTypesFlag,
+		*SyncCacheSizeFlag,
 	}
 
 	errPrivateSyncNotSupported = fmt.Errorf("private sync is not supported (yet)!")
@@ -57,6 +63,7 @@ type Config struct {
 	OrganizationsRepositoriesLimit int      `cfg:"organizations-repositories-limit"`
 	RepositoriesStartPage          int      `cfg:"repositories-start-page"`
 	SyncTypes                      []string `cfg:"sync-types"`
+	SyncCacheSize                  int      `cfg:"sync-cache-size"`
 }
 
 func NewConfig(c *cli.Context) *Config {
@@ -67,6 +74,7 @@ func NewConfig(c *cli.Context) *Config {
 		OrganizationsRepositoriesLimit: c.Int("organizations-repositories-limit"),
 		RepositoriesStartPage:          c.Int("repositories-start-page"),
 		SyncTypes:                      c.StringSlice("sync-types"),
+		SyncCacheSize:                  c.Int("sync-cache-size"),
 	}
 }
 

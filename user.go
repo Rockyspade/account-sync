@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"gopkg.in/yaml.v2"
 )
 
@@ -49,7 +48,7 @@ func (user *User) Hydrate() error {
 	return yaml.Unmarshal([]byte(user.GithubScopesYAML.String), &user.GithubScopes)
 }
 
-func (user *User) HydrateOrganizations(db *sqlx.DB) error {
+func (user *User) HydrateOrganizations(db *DB) error {
 	if user.Organizations != nil {
 		return nil
 	}
